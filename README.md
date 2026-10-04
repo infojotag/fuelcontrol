@@ -31,5 +31,5 @@ Cada utilizador deve poder ler/escrever apenas o seu próprio caminho `users/{ui
 - A sincronização atual usa `updatedAt` e mantém os dados locais. Para uma futura versão multi-dispositivo avançada, podemos acrescentar resolução explícita de conflitos e tombstones mais sofisticados.
 
 
-## v17 — sincronização manual
+## — sincronização manual
 A sincronização Firebase é exclusivamente manual: os dados locais não são enviados automaticamente ao iniciar sessão, ao voltar online ou ao voltar à aplicação. O envio ocorre apenas através do botão **Sincronizar**.
