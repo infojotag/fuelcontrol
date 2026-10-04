@@ -178,7 +178,7 @@
             <div class="bg-gray-800 border border-gray-700 rounded-3xl p-5 shadow-xl">
                 <h3 class="text-sm font-bold text-gray-300 uppercase mb-4"><i class="fa-solid fa-car text-amber-500 mr-2"></i>Adicionar Carro</h3>
                 <div class="flex gap-2">
-                    <input type="text" id="novoCarroNome" placeholder="Ex: Golf GTE ou Ibiza" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-white outline-none">
+                    <input type="text" id="novoCarroNome" placeholder="Ex: Golf GTE" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-white outline-none">
                     <button id="btnAdicionarCarro" class="bg-amber-500 text-gray-900 px-4 rounded-xl font-bold hover:bg-amber-600 transition">Adicionar</button>
                 </div>
             </div>
@@ -425,7 +425,7 @@
       const hoje=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)};
       const lerJSON=(k,f)=>{try{const v=JSON.parse(localStorage.getItem(k));return v??f}catch{return f}};
       const guardarJSON=(k,v)=>{const old=lerJSON(k,[]);const val=stamp(v);if(!cloudApplying&&Array.isArray(old)&&Array.isArray(val)){const idsOld=new Set(old.map(x=>String(x?.id??x)));const idsNew=new Set(val.map(x=>String(x?.id??x)));old.filter(x=>!idsNew.has(String(x?.id??x))).forEach(x=>markDeleted(k,String(x?.id??x)));}localStorage.setItem(k,JSON.stringify(val));if(!cloudApplying)agendarSync()};
-      const obterCarros=()=>{let c=lerJSON(KEYS.carros,[]);if(!Array.isArray(c)||!c.length){c=["Golf GTE","Seat Ibiza"];guardarJSON(KEYS.carros,c)}return c};
+      const obterCarros=()=>{let c=lerJSON(KEYS.carros,[]);if(!Array.isArray(c)||!c.length){c=["Golf GTE"];guardarJSON(KEYS.carros,c)}return c};
       const obterAbastecimentos=()=>{const d=lerJSON(KEYS.abastecimentos,[]);return Array.isArray(d)?d:[]};
       const euros=n=>Number(n||0).toLocaleString("pt-PT",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
       const num=(n,d=2)=>Number(n||0).toLocaleString("pt-PT",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -551,7 +551,7 @@
 function descarregarCSV(csv,nome){const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=nome;a.click();setTimeout(()=>URL.revokeObjectURL(url),500)}
 window.exportarCSV=()=>{const d=obterAbastecimentos();if(!d.length)return alert("Não existem dados para exportar.");descarregarCSV(gerarCSVAbastecimentos(d),`fuelcontrol-${hoje()}.csv`)};
 window.exportarCSVCarro=carro=>{const d=obterAbastecimentos().filter(x=>x.carro===carro);if(!d.length)return alert("Não existem abastecimentos para este carro.");const csv=gerarCSVAbastecimentos(d);const nome=carro.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-|-$/g,"").toLowerCase()||"carro";descarregarCSV(csv,`fuelcontrol-${nome}-${hoje()}.csv`)};
-      window.limparDados=()=>{if(!confirm("Apagar TODOS os dados de carros, abastecimentos, manutenção e despesas? Esta ação não pode ser desfeita."))return;localStorage.removeItem(KEYS.abastecimentos);localStorage.removeItem(KEYS.manutencoes);localStorage.removeItem(KEYS.despesas);localStorage.setItem(KEYS.carros,JSON.stringify(["Golf GTE","Seat Ibiza"]));preencherCarros();renderDashboard();renderHistorico();renderGraficos();renderGaragem();renderManutencao();renderDespesas()};
+      window.limparDados=()=>{if(!confirm("Apagar TODOS os dados de carros, abastecimentos, manutenção e despesas? Esta ação não pode ser desfeita."))return;localStorage.removeItem(KEYS.abastecimentos);localStorage.removeItem(KEYS.manutencoes);localStorage.removeItem(KEYS.despesas);localStorage.setItem(KEYS.carros,JSON.stringify(["Golf GTE"]));preencherCarros();renderDashboard();renderHistorico();renderGraficos();renderGaragem();renderManutencao();renderDespesas()};
       $("fuelForm").addEventListener("input",atualizarTotal);
       $("fuelForm").addEventListener("submit",e=>{e.preventDefault();const carro=$("carro").value,data=$("data").value,km=Number($("km").value),litros=Number($("litros").value),preco=Number($("preco").value);if(!carro||!data||km<0||litros<=0||preco<=0)return alert("Preencha todos os campos com valores válidos.");const d=obterAbastecimentos().filter(x=>x.carro===carro),max=d.reduce((m,x)=>Math.max(m,Number(x.km)),0);if(km<max&&!confirm(`O último registo deste carro tem ${num(max,0)} km. Gravar mesmo assim?`))return;d.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2),carro,data,km,litros,preco,total:Number((litros*preco).toFixed(2))});const all=obterAbastecimentos().filter(x=>x.carro!==carro);guardarJSON(KEYS.abastecimentos,[...all,...d]);e.target.reset();$("data").value=hoje();atualizarTotal();renderDashboard();alert("Abastecimento gravado com sucesso.")});
 
