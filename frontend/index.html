@@ -1,4 +1,9 @@
 <!DOCTYPE html>
+<!-- 
+Aplicção Web
+Gestão de combustível, manutenção e despesas do veículo
+FuelControl by @PG
+-->
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
@@ -299,7 +304,8 @@
         </section>
 <!-- ABA 8: SETUP -->
         <section id="aba-setup" class="space-y-5 hidden">
-            
+<!-- menu firebase -->
+<!-- menu backup -->
         <div class="bg-gray-800 border border-gray-700 rounded-3xl p-5 shadow-xl">
             <div class="flex items-center gap-3 mb-4"><div class="bg-amber-500/15 p-3 rounded-xl text-amber-400"><i class="fa-solid fa-shield-halved text-lg"></i></div><div><h3 class="font-bold">Backup e restauro</h3><p class="text-xs text-gray-400">Guarda uma cópia dos teus dados no dispositivo.</p></div></div>
             <div class="grid grid-cols-2 gap-2">
@@ -378,15 +384,246 @@
     </div>
 
     <!-- AUTENTICAÇÃO / NUVEM -->
-
+<!--
+    <div id="modalAuth" class="hidden fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm p-4 flex items-center justify-center">
+      <div class="w-full max-w-md bg-gray-800 border border-gray-700 rounded-3xl shadow-2xl p-5">
+        <div class="flex items-center gap-3 mb-5"><div class="bg-amber-500 text-gray-900 p-3 rounded-xl"><i class="fa-solid fa-cloud"></i></div><div><h2 class="text-lg font-black">FuelControl Cloud</h2><p class="text-xs text-gray-400">Sincroniza os teus dados entre dispositivos</p></div></div>
+        <div class="space-y-3">
+          <input id="authEmail" type="email" autocomplete="email" placeholder="Email" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3">
+          <input id="authPassword" type="password" autocomplete="current-password" placeholder="Palavra-passe (mín. 6 caracteres)" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3">
+          <div id="authMsg" class="text-sm text-gray-400"></div>
+          <div class="grid grid-cols-2 gap-2"><button onclick="loginCloud()" class="bg-amber-500 text-gray-900 py-3 rounded-xl font-bold">Entrar</button><button onclick="registarCloud()" class="bg-gray-700 py-3 rounded-xl font-bold">Criar conta</button></div>
+          <button onclick="fecharAuth()" class="w-full text-gray-400 py-2 text-sm">Cancelar</button>
+        </div>
+      </div>
+    </div>
+-->
+    <!-- Firebase é opcional: se não estiver configurado ou disponível, a app continua 100% local. -->
+<!--
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+-->
     <!-- Script de Controlo -->
     <script>
     (() => {
       "use strict";
-        
+
       // ================================================================
-      // FUELCONTROL v20 — LOCAL FIRST + FIREBASE OPCIONAL — SYNC MANUAL 
+      // FUELCONTROL v20 — LOCAL FIRST + FIREBASE OPCIONAL — SYNC MANUAL + GARAGEM CORRIGIDA
       // ================================================================
+      const CLOUD_EMAIL_KEY="fuelcontrol_firebase_email";
+      const CLOUD_ENABLED_KEY="fuelcontrol_firebase_enabled";
+      const FIREBASE_CONFIG_KEY="fuelcontrol_firebase_config";
+      const SYNC_DELETED_KEY="fuelcontrol_sync_deleted";
+      let firebaseApp=null, firebaseAuth=null, firebaseDb=null, cloudUser=null;
+      let cloudApplying=false, cloudSyncTimer=null;
+ 
+      // Coloca aqui a configuração do teu projeto Firebase quando o criares.
+      // NUNCA colocar aqui a chave secreta/service-account do Firebase.
+      const DEFAULT_FIREBASE_CONFIG={
+        apiKey:"",
+        authDomain:"",
+        projectId:"",
+        storageBucket:"",
+        messagingSenderId:"",
+        appId:""
+      };
+
+      const getFirebaseConfig=()=>{try{return {...DEFAULT_FIREBASE_CONFIG,...JSON.parse(localStorage.getItem(FIREBASE_CONFIG_KEY)||"{}")}}catch{return DEFAULT_FIREBASE_CONFIG}};
+      const firebaseConfigured=()=>{const c=getFirebaseConfig();return !!(c.apiKey&&c.authDomain&&c.projectId&&c.appId)};
+      const firebaseEnabled=()=>localStorage.getItem(CLOUD_ENABLED_KEY)==="1";
+      const cloudEmail=()=>localStorage.getItem(CLOUD_EMAIL_KEY)||"";
+
+      function formatarUltimoEnvio(){
+        const raw=localStorage.getItem("fuelcontrol_firebase_last_sync");
+        if(!raw)return "Ainda não foi enviado para o Firebase.";
+        const d=new Date(raw);
+        if(Number.isNaN(d.getTime()))return "Último envio: —";
+        return "Último envio: "+d.toLocaleString("pt-PT",{dateStyle:"short",timeStyle:"medium"});
+      }
+
+      function atualizarEstadoCloud(){
+        const el=$("cloudStatus"),btn=$("cloudAuthBtn"),toggle=$("cloudToggle"),last=$("cloudLastSync"); if(!el)return;
+        if(toggle)toggle.checked=firebaseEnabled();
+        if(last)last.textContent=formatarUltimoEnvio();
+        if(!firebaseConfigured()){el.textContent="Apenas local — Firebase ainda não configurado";el.className="text-xs text-gray-400 mt-1";if(btn)btn.textContent="Configurar";return}
+        if(!firebaseEnabled()){el.textContent="Sincronização desligada — dados apenas neste dispositivo";el.className="text-xs text-gray-400 mt-1";if(btn){btn.textContent="Ligar";btn.className="bg-sky-900/40 border border-sky-800 text-sky-300 px-3 py-2 rounded-xl text-xs font-bold"}return}
+        if(cloudUser){el.textContent=`Ligado: ${cloudUser.email||cloudEmail()} · sincronização manual`;el.className="text-xs text-emerald-400 mt-1";if(btn){btn.textContent="Conta";btn.className="bg-emerald-900/40 border border-emerald-800 text-emerald-300 px-3 py-2 rounded-xl text-xs font-bold"}}
+        else{el.textContent="Firebase ativo — sessão não iniciada";el.className="text-xs text-amber-400 mt-1";if(btn)btn.textContent="Entrar"}
+      }
+
+      function initFirebase(){
+        if(!firebaseConfigured()||typeof firebase==="undefined")return false;
+        try{
+          if(!firebaseApp)firebaseApp=firebase.initializeApp(getFirebaseConfig());
+          firebaseAuth=firebase.auth();firebaseDb=firebase.firestore();
+          firebaseAuth.onAuthStateChanged(u=>{cloudUser=u||null;if(u)localStorage.setItem(CLOUD_EMAIL_KEY,u.email||"");atualizarEstadoCloud();});
+          return true;
+        }catch(e){console.warn("Firebase indisponível:",e);return false}
+      }
+
+      window.abrirAuth=()=>{$("authEmail").value=cloudEmail();$("authPassword").value="";$('authMsg').textContent="";$('modalAuth').classList.remove("hidden");if(!firebaseConfigured())$('authMsg').textContent="Primeiro configura o Firebase no Setup."};
+      window.fecharAuth=()=>$('modalAuth').classList.add("hidden");
+      async function authFirebase(mode){
+        const email=$("authEmail").value.trim(),password=$("authPassword").value;
+        if(!email||password.length<6)return $("authMsg").textContent="Indica um email e uma palavra-passe com pelo menos 6 caracteres.";
+        if(!initFirebase())return $("authMsg").textContent="Firebase não está configurado/disponível. A app continua a funcionar localmente.";
+        $("authMsg").textContent="A ligar...";
+        try{const r=mode==="register"?await firebaseAuth.createUserWithEmailAndPassword(email,password):await firebaseAuth.signInWithEmailAndPassword(email,password);localStorage.setItem(CLOUD_ENABLED_KEY,"1");cloudUser=r.user;fecharAuth();atualizarEstadoCloud();alert("Sessão iniciada com sucesso. A sincronização é manual — carrega em Sincronizar quando quiseres enviar os dados para o Firebase.")}catch(e){$("authMsg").textContent=e.message||"Não foi possível iniciar sessão."}
+      }
+      window.loginCloud=()=>authFirebase("login");
+      window.registarCloud=()=>authFirebase("register");
+      window.terminarSessao=async()=>{try{if(firebaseAuth)await firebaseAuth.signOut()}catch{}cloudUser=null;localStorage.removeItem(CLOUD_EMAIL_KEY);localStorage.setItem(CLOUD_ENABLED_KEY,"0");atualizarEstadoCloud();alert("Sessão terminada. Os dados locais foram mantidos.")};
+
+      function readDeleted(){return lerJSON(SYNC_DELETED_KEY,{})}
+      function markDeleted(collection,id){if(cloudApplying)return;const d=readDeleted();d[collection]??={};d[collection][String(id)]=new Date().toISOString();localStorage.setItem(SYNC_DELETED_KEY,JSON.stringify(d))}
+      function limparDeleted(collection,id){const d=readDeleted();if(d[collection]){delete d[collection][String(id)];localStorage.setItem(SYNC_DELETED_KEY,JSON.stringify(d))}}
+      function stamp(v){return Array.isArray(v)?v.map(x=>x&&typeof x==='object'&&!x.updatedAt?{...x,updatedAt:new Date().toISOString()}:x):v}
+///*
+      function normalizarFirebaseRecord(col,x){
+        if(!x)return null; const o={...x}; delete o._server;
+        if(col==="refuels")return {id:String(o.id||""),carro:o.carro||"",data:o.data||"",km:Number(o.km||0),litros:Number(o.litros||0),preco:Number(o.preco||0),total:Number(o.total||0),updatedAt:o.updatedAt||new Date(0).toISOString()};
+        if(col==="maintenance")return {id:String(o.id||""),carro:o.carro||"",data:o.data||"",km:Number(o.km||0),tipo:o.tipo||"",descricao:o.descricao||"",oficina:o.oficina||"",custo:Number(o.custo||0),proxKm:Number(o.proxKm||0),proxData:o.proxData||"",obs:o.obs||"",updatedAt:o.updatedAt||new Date(0).toISOString()};
+        if(col==="expenses")return {id:String(o.id||""),carro:o.carro||"",data:o.data||"",km:o.km==null?null:Number(o.km),tipo:o.tipo||"",descricao:o.descricao||"",valor:Number(o.valor||0),obs:o.obs||"",updatedAt:o.updatedAt||new Date(0).toISOString()};
+        return o;
+      }
+//*/
+      async function pushCollection(col,items){
+        if(!firebaseDb||!cloudUser)return {sent:0,remote:0};
+        const base=firebaseDb.collection("users").doc(cloudUser.uid).collection(col);
+        let sent=0;
+        // Envia em blocos pequenos e verifica imediatamente o que ficou no Firestore.
+        for(let i=0;i<items.length;i+=400){
+          const batch=firebaseDb.batch();
+          const chunk=items.slice(i,i+400);
+          chunk.forEach(x=>{
+            let id=String(x?.id??"").trim();
+            if(!id||id==="undefined"||id==="null")id=crypto.randomUUID();
+            const payload={...x,id,deleted:false,updatedAt:x?.updatedAt||new Date().toISOString()};
+            batch.set(base.doc(id),payload,{merge:true});
+          });
+          if(chunk.length){await batch.commit();sent+=chunk.length;}
+        }
+        const snap=await base.get();
+        const remote=snap.docs.filter(d=>d.data()?.deleted!==true).length;
+        if(remote<items.length)throw new Error(`Firebase não confirmou ${col}: enviados ${items.length}, encontrados ${remote}. Caminho: users/${cloudUser.uid}/${col}`);
+        return {sent,remote};
+      }
+
+      async function pushCloud(){
+        if(!firebaseDb||!cloudUser||!firebaseEnabled())return {cars:0,refuels:0,maintenance:0,expenses:0};
+
+        // Aplica primeiro as eliminações que continuam válidas.
+        // Incluímos também CARS: quando um carro era apagado localmente, a v18
+        // removia-o do dispositivo mas não criava o tombstone remoto do carro.
+        // No sync seguinte, pullCloud voltava a importar o carro do Firebase.
+        const active={
+          cars:new Set(obterCarros().map(x=>String(x))),
+          refuels:new Set(obterAbastecimentos().map(x=>String(x?.id??""))),
+          maintenance:new Set(obterManutencoes().map(x=>String(x?.id??""))),
+          expenses:new Set(obterDespesas().map(x=>String(x?.id??"")))
+        };
+        const del=readDeleted();
+        const cleaned={...del};
+        for(const [localKey,ids] of Object.entries(del)){
+          const col={"combustivel_carros":"cars","combustivel_abastecimentos":"refuels","combustivel_manutencoes":"maintenance","combustivel_despesas":"expenses"}[localKey]||localKey;
+          // Para cars, o tombstone guarda o nome do carro; no Firestore o
+          // documento usa encodeURIComponent(nome).
+          const isCar=col==="cars";
+          const entries=Object.entries(ids||{}).filter(([id])=>!active[col]?.has(String(id)));
+          const restored=Object.entries(ids||{}).filter(([id])=>active[col]?.has(String(id)));
+          if(restored.length){
+            cleaned[localKey]={...(cleaned[localKey]||{})};
+            restored.forEach(([id])=>delete cleaned[localKey][id]);
+          }
+          for(let i=0;i<entries.length;i+=400){
+            const b=firebaseDb.batch(),cb=firebaseDb.collection("users").doc(cloudUser.uid).collection(col);
+            entries.slice(i,i+400).forEach(([id,at])=>{
+              const docId=isCar?encodeURIComponent(String(id)).slice(0,120):String(id);
+              const payload=isCar?{name:String(id),deleted:true,updatedAt:at}:{id:String(id),deleted:true,updatedAt:at};
+              b.set(cb.doc(docId),payload,{merge:true});
+            });
+            if(entries.slice(i,i+400).length)await b.commit();
+          }
+        }
+        localStorage.setItem(SYNC_DELETED_KEY,JSON.stringify(cleaned));
+
+        // Depois envia os dados atuais. Assim deleted:false é sempre o último estado.
+        const refuels=await pushCollection("refuels",obterAbastecimentos());
+        const maintenance=await pushCollection("maintenance",obterManutencoes());
+        const expenses=await pushCollection("expenses",obterDespesas());
+        const cars=obterCarros();
+        const baseCars=firebaseDb.collection("users").doc(cloudUser.uid).collection("cars");
+        let sentCars=0;
+        for(let i=0;i<cars.length;i+=400){
+          const batch=firebaseDb.batch();
+          cars.slice(i,i+400).forEach(name=>{const id=encodeURIComponent(name).slice(0,120);batch.set(baseCars.doc(id),{name,deleted:false,updatedAt:new Date().toISOString()},{merge:true});sentCars++;});
+          if(cars.slice(i,i+400).length)await batch.commit();
+        }
+        const carSnap=await baseCars.get();
+        const remoteCars=carSnap.docs.filter(d=>d.data()?.deleted!==true).length;
+        if(remoteCars<cars.length)throw new Error(`Firebase não confirmou cars: enviados ${cars.length}, encontrados ${remoteCars}.`);
+        return {cars:sentCars,refuels:refuels.sent,maintenance:maintenance.sent,expenses:expenses.sent,remoteCars:remoteCars,remoteRefuels:refuels.remote,remoteMaintenance:maintenance.remote,remoteExpenses:expenses.remote};
+      }
+      async function pullCloud(){
+        if(!firebaseDb||!cloudUser||!firebaseEnabled())return;
+        cloudApplying=true;
+        try{
+          for(const [col,key] of [["refuels",KEYS.abastecimentos],["maintenance",KEYS.manutencoes],["expenses",KEYS.despesas]]){
+            const snap=await firebaseDb.collection("users").doc(cloudUser.uid).collection(col).get();const remote=snap.docs.map(d=>({id:d.id,...d.data()}));const deleted=new Set(remote.filter(x=>x.deleted).map(x=>String(x.id)));const local=lerJSON(key,[]);const by=new Map(local.map(x=>[String(x.id),x]));remote.forEach(r=>{const id=String(r.id);if(r.deleted){by.delete(id);return}const l=by.get(id);if(!l||new Date(r.updatedAt||0)>=new Date(l.updatedAt||0))by.set(id,normalizarFirebaseRecord(col,r))});guardarJSON(key,[...by.values()]);}
+          const snap=await firebaseDb.collection("users").doc(cloudUser.uid).collection("cars").get();const names=snap.docs.map(d=>d.data()).filter(x=>!x.deleted&&x.name).map(x=>x.name);if(names.length){const local=obterCarros();guardarJSON(KEYS.carros,[...new Set([...local,...names])])}
+          atualizarTudo();
+        }finally{cloudApplying=false}
+      }
+      async function sincronizarFirebase(show=false){
+        if(!firebaseEnabled()||!cloudUser)return;
+        try{
+          const r=await pushCloud();
+          await pullCloud();
+          const when=new Date();
+          localStorage.setItem("fuelcontrol_firebase_last_sync",when.toISOString());
+          atualizarEstadoCloud();
+          if(show)alert(`Sincronização concluída.\n\nEnviado para o Firebase:\n🚗 ${r.cars} carro(s)\n⛽ ${r.refuels} abastecimento(s)\n🔧 ${r.maintenance} manutenção(ões)\n💶 ${r.expenses} despesa(s)\n\nConfirmado no Firebase:\n🚗 ${r.remoteCars} carro(s)\n⛽ ${r.remoteRefuels} abastecimento(s)\n🔧 ${r.remoteMaintenance} manutenção(ões)\n💶 ${r.remoteExpenses} despesa(s)\n\n${formatarUltimoEnvio()}`);
+        }catch(e){
+          console.warn("Sincronização Firebase falhou:",e);
+          if(show)alert(`ERRO NA SINCRONIZAÇÃO\n\n${e?.message||e}\n\nOs dados locais continuam intactos.`);
+          throw e;
+        }
+      }
+      function agendarSync(ms=1200){/* v17: sincronização exclusivamente manual */}
+      window.enviarNuvem=async()=>{if(!firebaseConfigured())return alert("Configura primeiro o Firebase no Setup.");if(!firebaseEnabled())localStorage.setItem(CLOUD_ENABLED_KEY,"1");if(!initFirebase()||!cloudUser)return abrirAuth();await sincronizarFirebase(true)};
+      window.baixarNuvem=async()=>{if(!firebaseConfigured())return alert("Configura primeiro o Firebase no Setup.");if(!firebaseEnabled())localStorage.setItem(CLOUD_ENABLED_KEY,"1");if(!initFirebase()||!cloudUser)return abrirAuth();if(!confirm("Importar dados da nuvem para este dispositivo? Os dados locais serão combinados por registo, mantendo o mais recente."))return;await pullCloud();alert("Dados da nuvem importados. Os dados locais continuam guardados.")};
+      window.toggleFirebase=()=>{const on=$("cloudToggle")?.checked;if(!on){localStorage.setItem(CLOUD_ENABLED_KEY,"0");atualizarEstadoCloud();return}localStorage.setItem(CLOUD_ENABLED_KEY,"1");if(!initFirebase()||!cloudUser){atualizarEstadoCloud();abrirAuth();return}atualizarEstadoCloud();};
+      window.guardarConfigFirebase=()=>{const fields=["fbApiKey","fbAuthDomain","fbProjectId","fbStorageBucket","fbMessagingSenderId","fbAppId"];const c={apiKey:$(fields[0]).value.trim(),authDomain:$(fields[1]).value.trim(),projectId:$(fields[2]).value.trim(),storageBucket:$(fields[3]).value.trim(),messagingSenderId:$(fields[4]).value.trim(),appId:$(fields[5]).value.trim()};localStorage.setItem(FIREBASE_CONFIG_KEY,JSON.stringify(c));alert("Configuração Firebase guardada neste dispositivo.");location.reload()};
+      window.exportarConfigFirebase=()=>{
+        try{
+          const c=getFirebaseConfig();
+          const b={versao:1,aplicacao:"FuelControl",tipo:"firebase-config",dataBackup:new Date().toISOString(),firebase:c,ativado:firebaseEnabled()};
+          const blob=new Blob([JSON.stringify(b,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+          a.href=url;a.download=`fuelcontrol-firebase-config-${hoje()}.json`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+          alert("Configuração Firebase exportada com sucesso.");
+        }catch(e){alert(e?.message||"Não foi possível exportar a configuração Firebase.")}
+      };
+      window.importarConfigFirebase=ev=>{
+        const f=ev.target.files?.[0];if(!f)return;
+        const r=new FileReader();
+        r.onload=()=>{
+          try{
+            const b=JSON.parse(r.result),c=b?.firebase;
+            if(b?.aplicacao!=="FuelControl"||b?.tipo!=="firebase-config"||!c||typeof c!=="object")throw new Error("Ficheiro de configuração Firebase inválido.");
+            const config={apiKey:String(c.apiKey||"").trim(),authDomain:String(c.authDomain||"").trim(),projectId:String(c.projectId||"").trim(),storageBucket:String(c.storageBucket||"").trim(),messagingSenderId:String(c.messagingSenderId||"").trim(),appId:String(c.appId||"").trim()};
+            if(!config.apiKey||!config.authDomain||!config.projectId||!config.appId)throw new Error("A configuração importada está incompleta (apiKey, authDomain, projectId e appId são obrigatórios).");
+            if(!confirm("Importar a configuração Firebase deste ficheiro e substituir a configuração atual neste dispositivo?"))return;
+            localStorage.setItem(FIREBASE_CONFIG_KEY,JSON.stringify(config));
+            if(typeof b.ativado==="boolean")localStorage.setItem(CLOUD_ENABLED_KEY,b.ativado?"1":"0");
+            alert("Configuração Firebase importada com sucesso.");location.reload();
+          }catch(e){alert(e?.message||"Não foi possível importar a configuração Firebase.")}
+          finally{ev.target.value=""}
+        };
+        r.readAsText(f);
+      };
+
 
       const KEYS={carros:"combustivel_carros",abastecimentos:"combustivel_abastecimentos",manutencoes:"combustivel_manutencoes",despesas:"combustivel_despesas",ultimoBackup:"combustivel_ultimo_backup"};
       let chartGastos=null, chartDashboard=null;
@@ -592,14 +829,14 @@
             cloudApplying=false;
             limparTombstonesRestaurados({carros:b.carros,abastecimentos:b.abastecimentos,manutencoes:manut,despesas:desp});
             preencherCarros();renderDashboard();renderHistorico();renderGraficos();renderGaragem();renderManutencao();renderDespesas();
-            alert("Backup restaurado com sucesso. Os dados continuam apenas no dispositivo até carregares em Sincronizar.");
+            alert("Backup restaurado com sucesso. Os dados continuam apenas no dispositivo.");
           }catch(e){cloudApplying=false;alert(e?.message||"Backup inválido.")}
           finally{ev.target.value=""}
         };
         r.readAsText(f);
       };
       window.apagarDadosLocais=()=>{
-        if(!confirm("Apagar todos os carros, abastecimentos, manutenções e despesas deste dispositivo?\n\nRecomenda-se fazer um backup antes. "))return;
+        if(!confirm("Apagar todos os carros, abastecimentos, manutenções e despesas deste dispositivo?\n\nRecomenda-se fazer um backup antes."))return;
         [KEYS.carros,KEYS.abastecimentos,KEYS.manutencoes,KEYS.despesas,KEYS.ultimoBackup,SYNC_DELETED_KEY].forEach(k=>localStorage.removeItem(k));
         preencherCarros();renderDashboard();renderHistorico();renderGraficos();renderGaragem();renderManutencao();renderDespesas();atualizarTextoBackup();alert("Dados locais apagados.");
       };
@@ -637,8 +874,8 @@
       // A garagem usa o handler robusto definido junto à própria secção.
       if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=40").then(r=>r.update()).catch(console.warn));
 
-      function atualizarTudo(){preencherCarros();preencherCarroManutencao();preencherCarroDespesas();renderDashboard();renderHistorico();renderGraficos();renderGaragem();renderManutencao();renderDespesas()}
-            window.addEventListener("load",()=>{configurarFormulariosCarros();configurarCalculoCombustivel();atualizarTextoBackup()});
+      function atualizarTudo(){preencherCarros();preencherCarroManutencao();preencherCarroDespesas();renderDashboard();renderHistorico();renderGraficos();renderGaragem();renderManutencao();renderDespesas();atualizarEstadoCloud()}
+            window.addEventListener("load",()=>{configurarFormulariosCarros();configurarCalculoCombustivel();const c=getFirebaseConfig();[["fbApiKey",c.apiKey],["fbAuthDomain",c.authDomain],["fbProjectId",c.projectId],["fbStorageBucket",c.storageBucket],["fbMessagingSenderId",c.messagingSenderId],["fbAppId",c.appId]].forEach(([id,v])=>{if($(id))$(id).value=v||""});initFirebase();atualizarEstadoCloud();atualizarTextoBackup()});
     })();
     </script>
 </body>
